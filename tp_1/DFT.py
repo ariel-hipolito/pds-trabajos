@@ -11,56 +11,134 @@ import numpy as np
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 import pdsmodulos as pds
-#%% 
 
-# Datos generales de la simulación
-N = 10   # cantidad de muestras
-fs = N # frecuencia de muestreo (Hz)
-df = fs/N # resolución espectral
+fs = 1000
+N = fs
 
-ts = 1/fs # tiempo de muestreo
-fo = 5 #Hz
+# DEFINICION DE FUNCIONES: 
+#%% PRIMER FUNCION DFT: 
+'''
+def mi_funcion_DFT(xx):
+    """
+    Calcula la Transformada Discreta de Fourier (DFT) de una señal xx.
     
-# grilla de sampleo temporal
-tt = np.arange(stop=1, step=ts)
+    Parameters
+    ----------
+    xx : array-like, tamaño N
+        Señal real de entrada.
 
-# senoidal a trabajar 
-sig_type = np.sin(tt*2*np.pi*fo)
-
-#%%
-
-#def my_funtion_DFT( sig_type ):
+    Returns
+    -------
+    XX : array-like, tamaño N
+        DFT de xx, valores complejos.
+    """
+    N = len(xx)
+    XX = np.zeros(N, dtype=complex)  # Vector de salida
     
-sig_DFT = np.zeros(N, dtype = np.complex128())
+    for k in range(N):  # cada frecuencia
+        suma = 0
+        for n in range(N):  # suma sobre la señal
+            suma += xx[n] * np.exp(-1j * 2 * np.pi * k * n / N)
+        XX[k] = suma
     
-for  k in range(0, N-1):
-        
-    for n in range(0, N-1):
-            
-        sig_DFT[k] += sig_type[n] * 1*np.exp(((-1) * 1j *2*np.pi*n / N) *k)  
-            
-    #return sig_DFT
+    return XX
+'''
+#%% FUNCION DFT MEJORADA: 
 
-# Invocamos a nuestro testbench exclusivamente: 
-#sig_DFT = my_funtion_DFT( sig_type)
-
-#plt.plot(tt, sig_DFT )
-
-"""#%% Presentación gráfica de los resultados
+def mi_funcion_DFT(xx):
+    """
+    Calcula la Transformada Discreta de Fourier (DFT) de una señal xx.
+    usando producto matricial (sin for loops).
     
-plt.figure(1)
-line_hdls = plt.plot(tt, sig_DFT)
-plt.title('Señal: DFT' )
-plt.xlabel('tiempo [segundos]')
-plt.ylabel('Amplitud [V]')
+    Parameters
+    ----------
+    xx : array-like, tamaño N
+        Señal real de entrada.
+
+    Returns
+    -------
+    XX : array-like, tamaño N
+        DFT de xx, valores complejos.
+    """
+    N = len(xx)
+    n = np.arange(N) # vector fila (1 x N) -> tiempo
+    k = np.expand_dims(n, axis=1) # vector columna (N x 1) -> frecuencia
+
     
+    arg = ((-1) * 1j * 2 * np.pi) / N
+    W = 1 * np.exp(arg * k * n)  # matriz NxN
+    
+    XX = np.dot(W, xx)  # producto matricial
+    
+    return XX  
+
+#%% SENOIDAL:
+def mi_funcion_sen(vmax=1, dc=0, ff=1, ph=0, nn=N , fs=fs):
+
+    # grilla de sampleo temporal
+    tt = np.arange(0, nn) / fs
+
+    xx = vmax * np.sin(tt*2*np.pi*ff + ph) + dc
+
+    return tt,xx
+
+#%% PRUEBA DFT
+
+tt, xx = mi_funcion_sen(vmax=1, dc=0, ff=5, ph=0, nn=N, fs=fs)
+XX = mi_funcion_DFT(xx)
+
+# Señal en el tiempo
+plt.figure()
+plt.plot(tt, xx)
+plt.title("Señal en el tiempo")
+plt.xlabel("Tiempo [s]")
+plt.ylabel("Amplitud")
+plt.grid(True)
 plt.show()
 
-"""
-"""arg = (-1) * 1j *2*np.pi./ N) * k
-b[n] = 1*np.exp(arg*n)
+# Valor absoluto de la señal luego de la DFT
+plt.figure()
+plt.plot(np.abs(XX), "o")
+plt.title("Transformada de Fourier propia - DFT")
+plt.xlabel("k (bin de frecuencia)")
+plt.ylabel("|X[k]|")
+plt.grid(True)
+plt.show()
 
-sig_DFT = np.dot(sig_type,b) // np.dot es el producto escalar de dos arrays o matrices 
+#%% BONUS: 
+    
+# Ruido uniforme con varianza = 4
+a = -np.sqrt(12*4)/2
+b =  np.sqrt(12*4)/2
+ruido = np.random.uniform(a, b, N)
 
+# Señal total
+xx_ruido = xx + ruido
 
-"""
+XX_ruido = mi_funcion_DFT(xx_ruido)
+XX_fft_ruido = np.fft.fft(xx_ruido)
+
+#%% GRAFICOS
+
+# Señales en el tiempo
+plt.figure()
+plt.plot(tt, xx, label="Senoidal pura")
+plt.plot(tt, xx_ruido, label="Seno + ruido", alpha=0.7)
+plt.title("Señal en el tiempo")
+plt.xlabel("Tiempo [s]")
+plt.ylabel("Amplitud")
+plt.legend()
+plt.grid(True)
+plt.show()
+
+# Espectros
+plt.figure()
+plt.plot(np.abs(XX_ruido), "x", label="DFT propia")
+plt.plot(np.abs(XX_fft_ruido), "o", label="FFT NumPy")
+plt.title("Espectro de la señal con ruido")
+plt.xlabel("k (bin de frecuencia)")
+plt.ylabel("|X[k]|")
+plt.legend()
+plt.grid(True)
+plt.show()
+
