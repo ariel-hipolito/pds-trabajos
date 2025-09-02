@@ -151,6 +151,26 @@ plt.grid(True)
 # Muestro todos los graficos 
 plt.show()
         
+#%%
+
+# Frecuencias de prueba
+f_menor= 300   # dentro del ancho de banda (sin aliasing)
+f_mayor = 700   # fuera del ancho de banda (con aliasing)
+
+# Señales senoidales
+tt_sin_menor, sin_menor = mi_funcion_sen(vmax=1, dc=1, ff=f_menor, ph=0, nn=N, fs=fs)
+tt_sin_mayor, sin_mayor = mi_funcion_sen(vmax=1, dc=1, ff=f_mayor, ph=0, nn=N, fs=fs)
+
+# Gráfico comparativo
+plt.figure(figsize=(10, 4))
+plt.plot(tt_sin_menor, sin_menor, label='300 Hz (sin aliasing)')
+plt.plot(tt_sin_mayor, sin_mayor, label='700 Hz (con aliasing)', linestyle='--')
+plt.title('Alias digital: comparación de señales')
+plt.xlabel('Tiempo [s]')
+plt.ylabel('Amplitud')
+plt.legend()
+plt.grid(True)
+plt.show()
 
     
 
