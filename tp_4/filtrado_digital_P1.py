@@ -11,9 +11,10 @@ import numpy as np
 from scipy import signal as sig
 import scipy.io as sio
 import pandas as pd
+from scipy.io import wavfile
 
 from pydub import AudioSegment
-from scipy.signal import iirdesign, freqz_sos, sosfiltfilt
+from scipy.signal import welch, firwin, filtfilt, iirdesign, freqz_sos, sosfiltfilt, sos2tf, tf2zpk, firwin2, freqz, firls, lfilter
 
 #%% LECTURA DE SEÑALES
 
@@ -385,7 +386,7 @@ for ii in regs_interes:
    
     plt.figure()
     plt.plot(zoom_region, ecg_one_lead[zoom_region], label='ECG', linewidth=2)
-    plt.plot(zoom_region, ecg_filt_cheby2[zoom_region], label='Cheby2')
+    plt.plot(zoom_region, ecg_filt_cauer[zoom_region], label='Cauer')
     plt.plot(zoom_region, ecg_fir_win[zoom_region + retardo_win], label='FIR Window')
    
     plt.title('ECG con ruido desde ' + str(ii[0]) + ' to ' + str(ii[1]) )
@@ -397,6 +398,33 @@ for ii in regs_interes:
     axes_hdl.set_yticks(())
            
     plt.show()
+    
+# REGIONES DE INTERES EXTRA:
+
+regs_interes_extra = (
+    [6200, 7200],
+    [9000, 9500],
+    [0, 3000]
+)
+
+for ii in regs_interes_extra:
+
+    zoom = np.arange(ii[0], ii[1], dtype='uint')
+
+    plt.figure(figsize=(10,4))
+    plt.plot(zoom, ecg_one_lead[zoom], label='ECG', linewidth=2)
+    plt.plot(zoom, ecg_filt_cauer[zoom], label='Cauer')
+    plt.plot(zoom, ecg_fir_ls[zoom + retardo_ls], label='Cuadrados Minimos')
+
+    plt.title(f'Región ECG desde {ii[0]} a {ii[1]}')
+    plt.ylabel('Adimensional')
+    plt.xlabel('Muestras (#)')
+    plt.legend()
+    plt.gca().set_yticks(())
+    plt.grid(True, linestyle='--', alpha=0.3)
+    plt.tight_layout()
+    plt.show()
+
     
 # %% COMPARACIÓN RESPUESTAS EN FRECUENCIA DE TODOS LOS FILTROS
 
@@ -443,4 +471,165 @@ plt.ylim(-80, 5)
 plt.grid(True, linestyle='--', alpha=0.6)
 plt.legend(loc='lower center', ncol=3, fontsize=8)
 plt.tight_layout()
+plt.show()
+
+#%% BONUS: 
+    
+# Carga del archivo de audio
+
+fs_audio, audio = wavfile.read('prueba psd.wav')
+
+# Normalización si viene en enteros (int16)
+if audio.dtype != float:
+    audio = audio.astype(float) / np.max(np.abs(audio))
+
+t = np.arange(len(audio)) / fs_audio
+
+# Dominio temporal
+
+plt.figure(figsize=(12,4))
+plt.plot(t, audio, color='gray')
+plt.title("Audio – Dominio temporal")
+plt.xlabel("Tiempo [s]")
+plt.ylabel("Amplitud")
+plt.grid(True, alpha=0.4)
+plt.tight_layout()
+plt.show()
+
+#%% 
+
+# PSD con Welch + ventana Hann 
+f_psd, Pxx = welch(audio, fs_audio, window='hann', nperseg=2048)
+Pxx_db = 10 * np.log10(Pxx + 1e-12)
+
+plt.figure(figsize=(10,4))
+plt.plot(f_psd, Pxx_db, color='k')
+plt.title("PSD del audio (Welch + Hann)")
+plt.xlabel("Frecuencia [Hz]")
+plt.ylabel("PSD [dB]")
+plt.grid(True, which='both', alpha=0.4)
+plt.tight_layout()
+plt.show()
+
+#%% 
+# Frecuencias normalizadas
+nyq = fs_audio/ 2
+ws1_audio = 60
+ws2_audio = 5000
+wp1_audio = 80
+wp2_audio = 4500
+
+gpass, gstop = 1, 40
+
+bands= np.array([0, ws1_audio+15, wp1_audio, wp2_audio, ws2_audio-15, nyq])/ nyq # plantilla
+desired = [0, 0, 1, 1, 0, 0]
+
+numtaps = 3001   # FIR largo → buena selectividad
+
+firwin2_coeffs = firwin2(numtaps, bands, desired, window='hamming')
+
+# Respuesta en frecuencia
+w_fir2, h_fir2 = freqz(firwin2_coeffs, worN=2048, fs=fs_audio)
+h_fir2_db = 20 * np.log10(np.abs(h_fir2) + 1e-12)
+
+plt.figure(figsize=(10,5))
+plt.plot(w_fir2, h_fir2_db, 'k', linewidth=1.3, label='FIR (Diseño)')
+
+# ========= PLANTILLA DE DISEÑO =========
+plt.axhline(-gpass, color='green', linestyle='--', linewidth=1,
+            label='Límite banda de paso')
+plt.axhline(-gstop, color='red', linestyle='--', linewidth=1,
+            label='Límite banda de stop')
+
+# ========= BANDAS (EN Hz) =========
+plt.axvspan(0, ws1_audio, color='red', alpha=0.12, label='Stop baja')
+plt.axvspan(wp1_audio, wp2_audio, color='green', alpha=0.12, label='Banda de paso')
+plt.axvspan(ws2_audio, fs_audio/2, color='red', alpha=0.12, label='Stop alta')
+
+# ========= LÍNEAS VERTICALES =========
+plt.axvline(wp1_audio, color='r', linestyle=':', linewidth=1)
+plt.axvline(wp2_audio, color='r', linestyle=':', linewidth=1)
+
+plt.title('Filtro FIR para audio (80–4500 Hz)')
+plt.xlabel('Frecuencia [Hz]')
+plt.ylabel('Magnitud [dB]')
+plt.xlim(0, fs_audio/2)
+#plt.ylim(-120, 5)
+plt.grid(True, which='both', linestyle='--', linewidth=0.6)
+plt.legend(loc='lower center', ncol=3, fontsize=8)
+plt.tight_layout()
+plt.show()
+
+#%% 
+# Diseño del filtro IIR con iirdesign
+# Normalización
+wp_audio = [wp1_audio/nyq, wp2_audio/nyq]
+ws_audio = [ws1_audio/nyq, ws2_audio/nyq]
+
+sos_iir_audio = iirdesign(
+    wp=wp_audio,
+    ws=ws_audio,
+    gpass=gpass,
+    gstop=gstop,
+    ftype='butter',   # butter / cheby1 / cheby2 / ellip
+    output='sos'
+)
+
+# Respuesta en frecuencia
+w, h = freqz_sos(sos_iir_audio, worN=4096, fs=fs_audio)
+h_db = 20 * np.log10(np.abs(h) + 1e-12)
+
+plt.figure(figsize=(10,5))
+plt.plot(w, h_db, linewidth=1.5, color='black', label='IIR (iirdesign)')
+
+
+# ========= PLANTILLA DE DISEÑO =========
+plt.axhline(-gpass, color='green', linestyle='--', linewidth=1,
+            label='Límite banda de paso')
+plt.axhline(-gstop, color='red', linestyle='--', linewidth=1,
+            label='Límite banda de stop')
+
+# ========= BANDAS (EN Hz) =========
+plt.axvspan(0, ws1_audio, color='red', alpha=0.12, label='Stop baja')
+plt.axvspan(wp1_audio, wp2_audio, color='green', alpha=0.12, label='Banda de paso')
+plt.axvspan(ws2_audio, fs_audio/2, color='red', alpha=0.12, label='Stop alta')
+
+# ========= LÍNEAS VERTICALES =========
+plt.axvline(wp1_audio, color='r', linestyle=':', linewidth=1)
+plt.axvline(wp2_audio, color='r', linestyle=':', linewidth=1)
+
+plt.title('Filtro IIR diseñado con iirdesign() — Audio 80–4500 Hz')
+plt.xlabel('Frecuencia [Hz]')
+plt.ylabel('Magnitud [dB]')
+plt.xlim(0, fs_audio/2)
+plt.ylim(-120, 5)
+plt.grid(True, which='both', linestyle='--', linewidth=0.6)
+plt.legend(loc='lower center', ncol=3, fontsize=8)
+plt.tight_layout()
+plt.show()
+
+#%% 
+
+# FIR 
+audio_fir = filtfilt(firwin2_coeffs, 1.0, audio)
+
+# IIR → filtfilt para no tener distorsión de fase
+audio_iir = sosfiltfilt(sos_iir_audio, audio)
+
+plt.figure(figsize=(12,4))
+plt.plot(audio, color='gray', alpha=0.5, label="Original")
+plt.plot(audio_fir, label="FIR (firls)", linewidth=1)
+plt.legend()
+plt.title("Audio filtrado FIR")
+plt.xlabel("Muestras")
+plt.grid(True)
+
+plt.figure(figsize=(12,4))
+plt.plot(audio, color='gray', alpha=0.5, label="Original")
+plt.plot(audio_iir, label="IIR (Butter)", linewidth=1)
+plt.legend()
+plt.title("Audio filtrado IIR")
+plt.xlabel("Muestras")
+plt.grid(True)
+
 plt.show()
