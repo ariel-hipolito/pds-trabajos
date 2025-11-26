@@ -296,27 +296,103 @@ plt.legend(loc='lower center', ncol=3, fontsize=8)
 plt.tight_layout()
 plt.show()
 
+
+#%% REMEZ: 
+from scipy.signal import remez, freqz
+
+# Seguridad en Nyquist
+nyq_safe = fs_ecg/2 - 1e-6
+
+# Orden (ajustable): si el borde bajo domina, quizás necesites >= 1501
+numtaps_remez = 3001  # puedes subir a 1801–2201 si el ripple no baja
+
+# Bandas (estrictamente ordenadas y < Nyquist)
+bands_remez = [0, ws1+0.2,  wp1+0.1, wp2,  ws2-4, nyq_safe]
+
+# Objetivos por banda: Stop / Pass / Stop
+desired_remez = [0, 1, 0]
+
+# Pesos: equilibra rizado y atenuación; ajusta según respuesta
+# Pasabanda más controlada, stopbands más penalizados
+weights = [60, 3.5, 80]  # Stop1 / Pass / Stop2
+
+fir_remez = remez(
+    numtaps_remez,
+    bands_remez,
+    desired_remez,
+    weight=weights,
+    fs=fs_ecg
+)
+
+# Respuesta en frecuencia
+w_rz, h_rz = freqz(fir_remez, worN=4096, fs=fs_ecg)
+h_rz_db = 20 * np.log10(np.abs(h_rz) + 1e-12)
+
+#%% VISUALIZACIÓN: FIR (REMEZ)
+# --------- GRÁFICA ---------
+plt.figure(figsize=(10,5))
+plt.plot(w_rz, h_rz_db, 'k', linewidth=1.3, label='FIR Parks–McClellan')
+
+plt.axhline(-ripple, color='green', linestyle='--', linewidth=1, label='Límite banda de paso')
+plt.axhline(-atenuacion, color='red', linestyle='--', linewidth=1, label='Límite banda de stop')
+
+plt.axvspan(0, ws1, color='red', alpha=0.1, label='Stop baja')
+plt.axvspan(wp1, wp2, color='green', alpha=0.1, label='Banda de paso')
+plt.axvspan(ws2, nyq, color='red', alpha=0.1, label='Stop alta')
+
+plt.title('Filtro FIR (Remez - firls)')
+plt.xlabel('Frecuencia [Hz]')
+plt.ylabel('Magnitud [dB]')
+plt.xlim(0, 80)
+plt.grid(True, which='both', linestyle='--', linewidth=0.6)
+plt.legend(loc='lower center', ncol=3, fontsize=8)
+plt.tight_layout()
+plt.show()
+
 #%%
 # Filtrado doble: pasa dos veces por el mismo filtro 
 # COMPARACION FILTROS FIR: VENTANAS VS CUADRADOS MINIMOS
 
-ecg_fir_ls = lfilter(b_fir_ls, 1.0, lfilter(b_fir_ls, 1.0, ecg_one_lead))
+ecg_fir_ls = lfilter(b_fir_ls, 1.0, ecg_one_lead)
 retardo_ls = (len(b_fir_ls) - 1) // 2
 
-ecg_fir_win = lfilter(b_fir_win, 1.0, lfilter(b_fir_win , 1.0, ecg_one_lead))
+ecg_fir_win = lfilter(b_fir_win, 1.0, ecg_one_lead)
 retardo_win = (len(b_fir_win) - 1) // 2
+
+# Aplicación (cuidado con el retardo)
+ecg_fir_remez = lfilter(fir_remez, 1.0, ecg_one_lead)
+retardo_remez = (numtaps_remez-1)//2
 
 plt.figure(figsize=(12,5))
 plt.plot(ecg_one_lead, color='gray', alpha=0.45, label='ECG con ruido', zorder=1)
 plt.plot(ecg_fir_win[retardo_win:], color='red', linewidth=1.4, label='FIR (Ventanas)', zorder=3)
-plt.plot(ecg_fir_ls[retardo_ls:],  color='blue',  linewidth=1.4, label='FIR (Mínimos Cuadrados)', zorder=2)
-
-plt.title('Comparación ECG con ruido: FIR Ventanas vs FIR Cuadrados Mínimos')
+plt.title('Comparación ECG con ruido vs FIR Ventanas')
 plt.xlabel('Muestras')
 plt.ylabel('Amplitud')
 plt.grid(True, linestyle='--', alpha=0.6)
 plt.legend(loc='upper right')
 plt.tight_layout()
+
+plt.figure(figsize=(12,5))
+plt.plot(ecg_one_lead, color='gray', alpha=0.45, label='ECG con ruido', zorder=1)
+plt.plot(ecg_fir_ls[retardo_ls:],  color='blue',  linewidth=1.4, label='FIR (Mínimos Cuadrados)', zorder=2)
+plt.title('Comparación ECG con ruido vs FIR Cuadrados Mínimos')
+plt.xlabel('Muestras')
+plt.ylabel('Amplitud')
+plt.grid(True, linestyle='--', alpha=0.6)
+plt.legend(loc='upper right')
+plt.tight_layout()
+
+plt.figure(figsize=(12,5))
+plt.plot(ecg_one_lead, color='gray', alpha=0.45, label='ECG con ruido', zorder=1)
+plt.plot(ecg_fir_remez[retardo_remez:], color='red', linewidth=1.4, label='FIR (Ventanas)', zorder=3)
+plt.title('Comparación ECG con ruido vs FIR REMEZ')
+plt.xlabel('Muestras')
+plt.ylabel('Amplitud')
+plt.grid(True, linestyle='--', alpha=0.6)
+plt.legend(loc='upper right')
+plt.tight_layout()
+
 plt.show()
 
 #%% COMPARACION FILTROS IIR: 
@@ -633,3 +709,28 @@ plt.xlabel("Muestras")
 plt.grid(True)
 
 plt.show()
+
+#%% COMPARAMOS FILTRADOS ESCUCHANDO EL AUDIO:
+    
+import sounddevice as sd
+import soundfile as sf
+
+# --- Reproducir audio original ---
+print("Reproduciendo audio original...")
+sd.play(audio, fs_audio)
+sd.wait()
+
+# --- Reproducir audio FIR ---
+print("Reproduciendo audio filtrado FIR...")
+sd.play(audio_fir, fs_audio)
+sd.wait()
+
+# --- Reproducir audio IIR ---
+print("Reproduciendo audio filtrado IIR...")
+sd.play(audio_iir, fs_audio)
+sd.wait()
+
+#GUARDAMOS EL AUDIO:
+    
+#wavfile.write("audio_filtrado_IIR.wav", fs_audio, audio_iir.astype(np.float32))
+#wavfile.write("audio_filtrado_FIR.wav", fs_audio, audio_fir.astype(np.float32))
