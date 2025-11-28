@@ -14,7 +14,7 @@ import pandas as pd
 from scipy.io import wavfile
 
 from pydub import AudioSegment
-from scipy.signal import welch, firwin, filtfilt, iirdesign, freqz_sos, sosfiltfilt, sos2tf, tf2zpk, firwin2, freqz, firls, lfilter
+from scipy.signal import welch, firwin, filtfilt, iirdesign, freqz_sos, sosfiltfilt, sos2zpk, tf2zpk, firwin2, freqz, firls, lfilter
 
 #%% LECTURA DE SEÑALES
 
@@ -158,55 +158,87 @@ plt.show()
 
 #%% DIAGRAMA POLOS Y CEROS (PLANO-Z)
 
-from scipy.signal import sos2tf, tf2zpk
+from matplotlib import  patches
 
-# Obtengo b,a del sos (producto de secciones)
-b, a = sos2tf(sos_butter)           # devuelve coeficientes del numerador y denominador global
-z, p, k = tf2zpk(b, a)      # ceros (z), polos (p), ganancia (k)
 
-# Configuro figura
-plt.figure(figsize=(6,6))
-ax = plt.gca()
-ax.set_title('Diagrama de polos y ceros (plano-z)')
-ax.set_xlabel('Parte real')
-ax.set_ylabel('Parte imaginaria')
-
-# Círculo unidad
-theta = np.linspace(0, 2*np.pi, 400)
-plt.plot(np.cos(theta), np.sin(theta), color='lightgray', linestyle='--', linewidth=1)
-
-# Ejes
-plt.axhline(0, color='gray', linewidth=0.8)
-plt.axvline(0, color='gray', linewidth=0.8)
-
-# Ploteo ceros y polos globales
-if len(z) > 0:
-    plt.scatter(np.real(z), np.imag(z), marker='o', facecolors='none', edgecolors='b', s=80, label='Ceros')
-plt.scatter(np.real(p), np.imag(p), marker='x', color='r', s=80, label='Polos')
-
-for i, section in enumerate(sos_butter):
-    b_s = section[:3]
-    a_s = section[3:]
-    z_s, p_s, k_s = tf2zpk(b_s, a_s)
-    if len(z_s) > 0:
-        plt.scatter(np.real(z_s), np.imag(z_s), marker='o', facecolors='none', edgecolors='cyan', s=30, alpha=0.7, zorder=1)
-    plt.scatter(np.real(p_s), np.imag(p_s), marker='x', color='magenta', s=30, alpha=0.7, zorder=1)
-
-# Ajustes de escala y leyenda
-lim = 1.2
-plt.xlim([-lim, lim])
-plt.ylim([-lim, lim])
-plt.gca().set_aspect('equal', 'box')
-plt.grid(True, linestyle='--', alpha=0.3)
-plt.legend(loc='upper right', fontsize=8)
-plt.tight_layout()
-plt.show()
-
-# Comprobación de estabilidad
-inside = np.sum(np.abs(p) < 1.0)
-total = len(p)
-print(f"Polos dentro del círculo unidad: {inside}/{total} -> {'Estable' if inside==total else 'Inestable o aproximación numérica'}")
+def analizar_filtro_sos(sos, fs, nombre="Filtro"):
+    w, h = freqz_sos(sos, worN=np.logspace(-2, 1.9, 1000), fs = fs)  # 10 Hz a 1 MHz aprox.
+    # w, h = signal.freqz_sos(mi_sos, fs = fs)  # Calcula la respuesta en frecuencia del filtro
     
+    # --- Cálculo de fase y retardo de grupo ---
+    phase = np.unwrap(np.angle(h))
+    # Retardo de grupo = -dφ/dω
+    w_rad = w / (fs/2) * np.pi
+    gd = -np.diff(phase) / np.diff(w_rad)
+    
+    # --- Polos y ceros ---
+    z, p, k = sos2zpk(sos)
+    
+    # --- Gráficas ---
+    # plt.figure(figsize=(12,10))
+    
+    # Magnitud
+    plt.subplot(3,1,1)
+    plt.plot(w, 20*np.log10(abs(h)), label = nombre)
+    plt.title('Respuesta en Magnitud')
+    plt.xlabel('Frecuencia [Hz]')
+    plt.ylabel('|H(jω)| [dB]')
+    plt.grid(True, which='both', ls=':')
+    plt.legend()
+    
+    # Fase
+    plt.subplot(3,1,2)
+    plt.plot(w, np.degrees(phase), label = nombre)
+    plt.title('Fase')
+    plt.xlabel('Frecuencia [Hz]')
+    plt.ylabel('Fase [°]')
+    plt.grid(True, which='both', ls=':')
+    plt.legend()
+    
+    # Retardo de grupo
+    plt.subplot(3,1,3)
+    plt.plot(w[:-1], gd, label = nombre)
+    plt.title('Retardo de Grupo')
+    plt.xlabel('Frecuencia [Hz]')
+    plt.ylabel('τg [# muestras]')
+    plt.grid(True, which='both', ls=':')
+    plt.legend()
+    
+    
+    # Diagrama de polos y ceros
+    plt.figure(figsize=(10,10))
+    plt.plot(np.real(p), np.imag(p), 'x', markersize=10, label=f'{nombre} Polos' )
+    axes_hdl = plt.gca()
+    
+    if len(z) > 0:
+        plt.plot(np.real(z), np.imag(z), 'o', markersize=10, fillstyle='none', label=f'{nombre} Ceros')
+        plt.axhline(0, color='k', lw=0.5)
+        plt.axvline(0, color='k', lw=0.5)
+        unit_circle = patches.Circle((0, 0), radius=1, fill=False,
+                                 color='gray', ls='dotted', lw=2)
+        axes_hdl.add_patch(unit_circle)
+    
+    plt.axis([-1.1, 1.1, -1.1, 1.1])
+    plt.title('Diagrama de Polos y Ceros (plano s)')
+    plt.xlabel(r'$\Re(z)$')
+    plt.ylabel(r'$\Im(z)$')
+    plt.legend()
+    plt.grid(True)
+    plt.legend()
+    
+    plt.tight_layout()
+    plt.show()
+
+    # Estabilidad
+    inside = np.sum(np.abs(p) < 1.0)
+    total = len(p)
+    print(f"Polos dentro del círculo unidad: {inside}/{total} -> {'Estable' if inside==total else 'Inestable o aproximación numérica'}")
+
+    
+analizar_filtro_sos(sos_butter, fs_ecg, "Butterworth")
+analizar_filtro_sos(sos_cauer, fs_ecg, "Cauer")
+analizar_filtro_sos(sos_cheby1, fs_ecg, "Chebyshev 1")
+analizar_filtro_sos(sos_cheby2, fs_ecg, "Chebyshev 2")
 # %% FIR
 
 from scipy.signal import firwin2, freqz, firls, lfilter
@@ -328,6 +360,7 @@ fir_remez = remez(
 w_rz, h_rz = freqz(fir_remez, worN=4096, fs=fs_ecg)
 h_rz_db = 20 * np.log10(np.abs(h_rz) + 1e-12)
 
+
 #%% VISUALIZACIÓN: FIR (REMEZ)
 # --------- GRÁFICA ---------
 plt.figure(figsize=(10,5))
@@ -349,6 +382,66 @@ plt.legend(loc='lower center', ncol=3, fontsize=8)
 plt.tight_layout()
 plt.show()
 
+#%%
+
+def analizar_filtro_fir(b, fs, nombre="FIR"):
+    """
+    Analiza un filtro FIR:
+    - Respuesta en magnitud
+    - Fase
+    - Retardo de grupo
+
+    Parámetros:
+    b      : coeficientes del FIR (numerador)
+    fs     : frecuencia de muestreo [Hz]
+    nombre : etiqueta para las gráficas
+    """
+
+    # --- Respuesta en frecuencia ---
+    w, h = freqz(b, worN=np.logspace(-2, 1.9, 1000), fs=fs)  # grilla log
+
+    # --- Fase y retardo de grupo ---
+    phase = np.unwrap(np.angle(h))
+    w_rad = w / (fs/2) * np.pi
+    gd = -np.diff(phase) / np.diff(w_rad)
+
+    # --- Gráficas ---
+    plt.figure(figsize=(10,8))
+
+    # Magnitud
+    plt.subplot(3,1,1)
+    plt.plot(w, 20*np.log10(np.abs(h)+1e-12), label=nombre)
+    plt.title('Respuesta en Magnitud')
+    plt.xlabel('Frecuencia [Hz]')
+    plt.ylabel('|H(e^{jω})| [dB]')
+    plt.grid(True, which='both', ls=':')
+    plt.legend()
+
+    # Fase
+    plt.subplot(3,1,2)
+    plt.plot(w, np.degrees(phase), label=nombre)
+    plt.title('Fase')
+    plt.xlabel('Frecuencia [Hz]')
+    plt.ylabel('Fase [°]')
+    plt.grid(True, which='both', ls=':')
+    plt.legend()
+
+    # Retardo de grupo
+    plt.subplot(3,1,3)
+    plt.plot(w[:-1], gd, label=nombre)
+    plt.title('Retardo de Grupo')
+    plt.xlabel('Frecuencia [Hz]')
+    plt.ylabel('τg [muestras]')
+    plt.grid(True, which='both', ls=':')
+    plt.legend()
+
+    plt.tight_layout()
+    plt.show()
+
+
+analizar_filtro_fir(b_fir_win, fs_ecg, "VENTANEO: HAMMING")
+analizar_filtro_fir(b_fir_ls, fs_ecg, "CUADRADOS MINIMOS")
+analizar_filtro_fir(fir_remez, fs_ecg, "REMEZ")
 #%%
 # Filtrado doble: pasa dos veces por el mismo filtro 
 # COMPARACION FILTROS FIR: VENTANAS VS CUADRADOS MINIMOS
@@ -433,7 +526,8 @@ for ii in regs_interes:
     plt.figure()
     plt.plot(zoom_region, ecg_one_lead[zoom_region], label='ECG', linewidth=2)
     plt.plot(zoom_region, ecg_filt_cauer[zoom_region], label='Cauer')
-    plt.plot(zoom_region, ecg_fir_win[zoom_region + retardo_win], label='FIR Window')
+    plt.plot(zoom_region, ecg_fir_ls[zoom_region + retardo_ls], label='Cuadrados Minimos')
+    #plt.plot(zoom_region, ecg_fir_remez[zoom_region + retardo_remez], label='Remez')
    
     plt.title('ECG sin ruido desde ' + str(ii[0]) + ' to ' + str(ii[1]) )
     plt.ylabel('Adimensional')
@@ -463,7 +557,8 @@ for ii in regs_interes:
     plt.figure()
     plt.plot(zoom_region, ecg_one_lead[zoom_region], label='ECG', linewidth=2)
     plt.plot(zoom_region, ecg_filt_cauer[zoom_region], label='Cauer')
-    plt.plot(zoom_region, ecg_fir_win[zoom_region + retardo_win], label='FIR Window')
+    plt.plot(zoom_region, ecg_fir_ls[zoom_region + retardo_ls], label='Cuadrados Minimos')
+    #plt.plot(zoom_region, ecg_fir_remez[zoom_region + retardo_remez], label='Remez')
    
     plt.title('ECG con ruido desde ' + str(ii[0]) + ' to ' + str(ii[1]) )
     plt.ylabel('Adimensional')
@@ -474,7 +569,8 @@ for ii in regs_interes:
     axes_hdl.set_yticks(())
            
     plt.show()
-    
+
+
 # REGIONES DE INTERES EXTRA:
 
 regs_interes_extra = (
@@ -485,12 +581,13 @@ regs_interes_extra = (
 
 for ii in regs_interes_extra:
 
-    zoom = np.arange(ii[0], ii[1], dtype='uint')
+    zoom = np.arange(np.max([0, ii[0]]), np.min([cant_muestras, ii[1]]), dtype='uint')
 
     plt.figure(figsize=(10,4))
     plt.plot(zoom, ecg_one_lead[zoom], label='ECG', linewidth=2)
     plt.plot(zoom, ecg_filt_cauer[zoom], label='Cauer')
     plt.plot(zoom, ecg_fir_ls[zoom + retardo_ls], label='Cuadrados Minimos')
+    #plt.plot(zoom_region, ecg_fir_remez[zoom_region + retardo_remez], label='Remez')
 
     plt.title(f'Región ECG desde {ii[0]} a {ii[1]}')
     plt.ylabel('Adimensional')
